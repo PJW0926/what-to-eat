@@ -375,13 +375,13 @@ export default function Home() {
           </section>
         )}
 
+        <p className="mt-10 text-xs text-gray-400 text-center">
+          서비스 개선을 위해 익명의 이용 기록
+          (선택 조건, 추천 조회 및 메뉴 선택)이 수집됩니다.
+          이름, 이메일 등 개인식별정보는 수집하지 않습니다.
+        </p>  
+
       </div>
     </main>
   );
 }
-
-<p className="mt-10 text-xs text-gray-400 text-center">
-  서비스 개선을 위해 익명의 이용 기록
-  (선택 조건, 추천 조회 및 메뉴 선택)이 수집됩니다.
-  이름, 이메일 등 개인식별정보는 수집하지 않습니다.
-</p>
