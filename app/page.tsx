@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { logEvent, getExperimentGroup } from "@/lib/analytics";
+import { useEffect, useRef, useState } from "react";
+import { getExperimentGroup, logEvent } from "@/lib/analytics";
 
 type Menu = {
   name: string;
@@ -124,6 +124,20 @@ const menuPool: Menu[] = [
     mealTimes: ["야식"],
     priceLevel: 1,
   },
+  {
+    name: "떡볶이",
+    reason: "매콤하고 자극적인 음식이 당길 때 잘 맞아요.",
+    tastes: ["매콤"],
+    mealTimes: ["점심", "저녁", "야식"],
+    priceLevel: 1,
+  },
+  {
+    name: "리조또",
+    reason: "부드럽고 고소한 한 끼를 먹고 싶을 때 좋아요.",
+    tastes: ["느끼", "든든"],
+    mealTimes: ["점심", "저녁"],
+    priceLevel: 2,
+  },
 ];
 
 export default function Home() {
@@ -133,8 +147,14 @@ export default function Home() {
 
   const [recommendations, setRecommendations] = useState<Menu[]>([]);
 
-    const [recommendationId, setRecommendationId] =
+  const [recommendationId, setRecommendationId] =
     useState<string | null>(null);
+
+  const [selectedMenu, setSelectedMenu] =
+    useState<Menu | null>(null);
+
+  // 매우 빠르게 여러 번 클릭하는 경우도 막기 위한 잠금
+  const selectionLocked = useRef(false);
 
   useEffect(() => {
     const alreadyLogged =
@@ -151,209 +171,117 @@ export default function Home() {
   }, []);
 
   const handleRecommend = async () => {
-  if (!mealTime || !taste || !budget) {
-    alert("식사 시간, 느낌, 예산을 모두 선택해주세요.");
-    return;
-  }
+    if (!mealTime || !taste || !budget) {
+      return;
+    }
 
-  await logEvent("preference_submit", {
-    meal_time: mealTime,
-    taste,
-    budget,
-  });
-
-  const budgetLevel =
-    budget === "1만원 이하"
-      ? 1
-      : budget === "1~2만원"
-      ? 2
-      : 99;
-
-  const scoredMenus = menuPool
-    .filter((menu) => menu.priceLevel <= budgetLevel)
-    .map((menu) => {
-      let score = 0;
-
-      if (menu.tastes.includes(taste)) {
-        score += 3;
-      }
-
-      if (menu.mealTimes.includes(mealTime)) {
-        score += 2;
-      }
-
-      if (
-        budget === "1만원 이하" &&
-        menu.priceLevel === 1
-      ) {
-        score += 1;
-      }
-
-      return {
-        ...menu,
-        score,
-      };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  const experimentGroup = getExperimentGroup();
-
-  const recommendationCount =
-    experimentGroup === "A" ? 3 : 5;
-
-  const menus = scoredMenus.slice(
-    0,
-    recommendationCount
-  );
-
-  // ⭐ 여기 추가
-  const newRecommendationId = crypto.randomUUID();
-
-  setRecommendationId(newRecommendationId);
-
-  setRecommendations(menus);
-
-  await logEvent(
-    "recommendation_view",
-    {
+    await logEvent("preference_submit", {
       meal_time: mealTime,
       taste,
       budget,
-      menu_count: menus.length,
-      experiment_group: experimentGroup,
+    });
 
+    const budgetLevel =
+      budget === "1만원 이하"
+        ? 1
+        : budget === "1~2만원"
+        ? 2
+        : 99;
 
-      menus: menus.map((menu, index) => ({
-        name: menu.name,
-        rank: index + 1,
-        score: menu.score,
-      })),
-    },
+    const scoredMenus = menuPool
+      .filter((menu) => menu.priceLevel <= budgetLevel)
+      .map((menu) => {
+        let score = 0;
 
-    // ⭐ 세 번째 인자로 recommendation_id 전달
-    newRecommendationId
-  );
-};
+        // 원하는 느낌과 일치
+        if (menu.tastes.includes(taste)) {
+          score += 3;
+        }
 
-  return (
-    <main className="min-h-screen bg-gray-50 text-gray-900 flex justify-center px-4 py-12">
-      <div className="w-full max-w-xl bg-white rounded-3xl shadow-sm p-8">
+        // 식사 시간과 일치
+        if (menu.mealTimes.includes(mealTime)) {
+          score += 2;
+        }
 
-        <h1 className="text-3xl font-bold mb-2">
-          🍽️ 오늘 뭐 먹지?
-        </h1>
+        // 저예산 조건에서 저렴한 메뉴
+        if (
+          budget === "1만원 이하" &&
+          menu.priceLevel === 1
+        ) {
+          score += 1;
+        }
 
-        <p className="text-gray-500 mb-8">
-          지금 먹고 싶은 느낌을 알려주세요.
-        </p>
+        return {
+          ...menu,
+          score,
+        };
+      })
+      .sort((a, b) => b.score - a.score);
 
-        {/* 식사 시간 */}
-        <section className="mb-8">
-          <h2 className="font-semibold mb-3">
-            지금 식사는?
-          </h2>
+    const experimentGroup = getExperimentGroup();
 
-          <div className="flex gap-2 flex-wrap">
-            {["아침", "점심", "저녁", "야식"].map((item) => (
-              <button
-                key={item}
-                onClick={() => setMealTime(item)}
-                className={`px-4 py-2 rounded-full border ${
-                  mealTime === item
-                    ? "bg-black text-white"
-                    : "bg-white text-gray-900"
-                }`}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </section>
+    // A그룹 = 3개
+    // B그룹 = 5개
+    const recommendationCount =
+      experimentGroup === "A" ? 3 : 5;
 
-        {/* 음식 취향 */}
-        <section className="mb-8">
-          <h2 className="font-semibold mb-3">
-            어떤 느낌?
-          </h2>
+    const menus = scoredMenus.slice(
+      0,
+      recommendationCount
+    );
 
-          <div className="flex gap-2 flex-wrap">
-            {["매콤", "담백", "든든", "가벼움", "느끼", "상큼"].map(
-              (item) => (
-                <button
-                  key={item}
-                  onClick={() => setTaste(item)}
-                  className={`px-4 py-2 rounded-full border ${
-                    taste === item
-                      ? "bg-black text-white"
-                      : "bg-white text-gray-900"
-                  }`}
-                >
-                  {item}
-                </button>
-              )
-            )}
-          </div>
-        </section>
+    const newRecommendationId =
+      crypto.randomUUID();
 
-        {/* 예산 */}
-        <section className="mb-8">
-          <h2 className="font-semibold mb-3">
-            예산은?
-          </h2>
+    setRecommendationId(newRecommendationId);
+    setRecommendations(menus);
 
-          <div className="flex gap-2 flex-wrap">
-            {["1만원 이하", "1~2만원", "상관없음"].map((item) => (
-              <button
-                key={item}
-                onClick={() => setBudget(item)}
-                className={`px-4 py-2 rounded-full border ${
-                  budget === item
-                    ? "bg-black text-white"
-                    : "bg-white text-gray-900"
-                }`}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </section>
+    // 새 추천 결과에서는 다시 메뉴 선택 가능
+    selectionLocked.current = false;
 
-        {/* 추천 버튼 */}
-        <button
-          onClick={handleRecommend}
-          className="w-full bg-black text-white py-4 rounded-xl font-semibold"
-        >
-          메뉴 추천받기
-        </button>
+    await logEvent(
+      "recommendation_view",
+      {
+        meal_time: mealTime,
+        taste,
+        budget,
+        menu_count: menus.length,
+        experiment_group: experimentGroup,
 
-        {/* 추천 결과 */}
-        {recommendations.length > 0 && (
-          <section className="mt-10">
-            <h2 className="text-xl font-bold mb-4">
-              오늘의 추천 🍴
-            </h2>
+        menus: menus.map((menu, index) => ({
+          name: menu.name,
+          rank: index + 1,
+          score: menu.score,
+        })),
+      },
+      newRecommendationId
+    );
 
-            <div className="space-y-4">
-              {recommendations.map((menu, index) => (
-                <div
-                  key={menu.name}
-                  className="border rounded-2xl p-5"
-                >
-                  <p className="text-sm text-gray-400 mb-1">
-                    추천 {index + 1}
-                  </p>
+    // 추천 결과 위치로 부드럽게 이동
+    setTimeout(() => {
+      window.scrollTo({
+        top: document.body.scrollHeight,
+        behavior: "smooth",
+      });
+    }, 100);
+  };
 
-                  <h3 className="text-lg font-bold mb-2">
-                    {menu.name}
-                  </h3>
+  const handleMenuSelect = async (
+    menu: Menu,
+    index: number
+  ) => {
+    // 이미 선택했으면 추가 클릭 무시
+    if (selectionLocked.current) {
+      return;
+    }
 
-                  <p className="text-gray-600 mb-4">
-                    {menu.reason}
-                  </p>
+    selectionLocked.current = true;
 
-                  <button
-  onClick={() =>
-    logEvent(
+    // 화면을 즉시 선택 완료 상태로 바꿈
+    // 로그 저장을 기다리는 동안 중복 클릭하는 것을 방지
+    setSelectedMenu(menu);
+
+    await logEvent(
       "menu_click",
       {
         menu_name: menu.name,
@@ -363,23 +291,393 @@ export default function Home() {
         budget,
       },
       recommendationId
-    )
+    );
+  };
+
+  const handleGoHome = () => {
+    setMealTime("");
+    setTaste("");
+    setBudget("");
+
+    setRecommendations([]);
+    setRecommendationId(null);
+    setSelectedMenu(null);
+
+    selectionLocked.current = false;
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  };
+
+  const canRecommend =
+    mealTime !== "" &&
+    taste !== "" &&
+    budget !== "";
+
+  // ========================================
+  // 메뉴 선택 완료 화면
+  // ========================================
+
+  if (selectedMenu) {
+    return (
+      <main className="min-h-screen bg-gray-50 text-gray-900 flex justify-center px-4 py-8 sm:py-12">
+        <div className="w-full max-w-xl bg-white rounded-3xl shadow-sm p-6 sm:p-8">
+
+          <div className="py-14 sm:py-20 text-center">
+
+            <div className="text-6xl mb-6">
+              🍽️
+            </div>
+
+            <p className="text-gray-500 mb-3">
+              오늘의 메뉴 선택 완료!
+            </p>
+
+            <h1 className="text-3xl font-bold mb-4">
+              {selectedMenu.name}
+            </h1>
+
+            <p className="text-gray-600 leading-relaxed mb-10">
+              {selectedMenu.reason}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleGoHome}
+              className="
+                w-full
+                cursor-pointer
+                bg-black
+                text-white
+                py-4
+                rounded-xl
+                font-semibold
+                transition-all
+                duration-150
+                hover:bg-gray-800
+                active:scale-[0.98]
+              "
+            >
+              다시 추천받기
+            </button>
+
+          </div>
+
+          <p className="text-xs leading-relaxed text-gray-400 text-center">
+            서비스 개선을 위해 익명의 이용 기록
+            (선택 조건, 추천 조회 및 메뉴 선택)이 수집됩니다.
+            이름, 이메일 등 개인식별정보는 수집하지 않습니다.
+          </p>
+
+        </div>
+      </main>
+    );
   }
-  className="px-4 py-2 bg-gray-100 rounded-lg"
->
-  이거 먹을래
-</button>
-                </div>
-              ))}
+
+  // ========================================
+  // 메인 화면
+  // ========================================
+
+  return (
+    <main className="min-h-screen bg-gray-50 text-gray-900 flex justify-center px-4 py-8 sm:py-12">
+      <div className="w-full max-w-xl bg-white rounded-3xl shadow-sm p-6 sm:p-8">
+
+        <h1 className="text-3xl font-bold mb-2">
+          🍽️ 오늘 뭐 먹지?
+        </h1>
+
+        <p className="text-gray-500 mb-10">
+          지금 먹고 싶은 느낌을 알려주세요.
+        </p>
+
+
+        {/* ===================================
+            식사 시간
+        =================================== */}
+
+        <section className="mb-9">
+          <h2 className="font-semibold mb-3">
+            지금 식사는?
+          </h2>
+
+          <div className="flex gap-2 flex-wrap">
+            {["아침", "점심", "저녁", "야식"].map(
+              (item) => (
+                <button
+                  type="button"
+                  key={item}
+                  onClick={() => setMealTime(item)}
+                  aria-pressed={mealTime === item}
+                  className={`
+                    cursor-pointer
+                    px-4 py-2
+                    rounded-full
+                    border
+                    transition-all
+                    duration-150
+                    active:scale-95
+
+                    ${
+                      mealTime === item
+                        ? `
+                          bg-black
+                          text-white
+                          border-black
+                          hover:bg-gray-800
+                        `
+                        : `
+                          bg-white
+                          text-gray-900
+                          border-gray-200
+                          hover:bg-gray-100
+                          hover:border-gray-400
+                        `
+                    }
+                  `}
+                >
+                  {item}
+                </button>
+              )
+            )}
+          </div>
+        </section>
+
+
+        {/* ===================================
+            느낌
+        =================================== */}
+
+        <section className="mb-9">
+          <h2 className="font-semibold mb-3">
+            어떤 느낌?
+          </h2>
+
+          <div className="flex gap-2 flex-wrap">
+            {[
+              "매콤",
+              "담백",
+              "든든",
+              "가벼움",
+              "느끼",
+              "상큼",
+            ].map((item) => (
+              <button
+                type="button"
+                key={item}
+                onClick={() => setTaste(item)}
+                aria-pressed={taste === item}
+                className={`
+                  cursor-pointer
+                  px-4 py-2
+                  rounded-full
+                  border
+                  transition-all
+                  duration-150
+                  active:scale-95
+
+                  ${
+                    taste === item
+                      ? `
+                        bg-black
+                        text-white
+                        border-black
+                        hover:bg-gray-800
+                      `
+                      : `
+                        bg-white
+                        text-gray-900
+                        border-gray-200
+                        hover:bg-gray-100
+                        hover:border-gray-400
+                      `
+                  }
+                `}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </section>
+
+
+        {/* ===================================
+            예산
+        =================================== */}
+
+        <section className="mb-9">
+          <h2 className="font-semibold mb-3">
+            예산은?
+          </h2>
+
+          <div className="flex gap-2 flex-wrap">
+            {[
+              "1만원 이하",
+              "1~2만원",
+              "상관없음",
+            ].map((item) => (
+              <button
+                type="button"
+                key={item}
+                onClick={() => setBudget(item)}
+                aria-pressed={budget === item}
+                className={`
+                  cursor-pointer
+                  px-4 py-2
+                  rounded-full
+                  border
+                  transition-all
+                  duration-150
+                  active:scale-95
+
+                  ${
+                    budget === item
+                      ? `
+                        bg-black
+                        text-white
+                        border-black
+                        hover:bg-gray-800
+                      `
+                      : `
+                        bg-white
+                        text-gray-900
+                        border-gray-200
+                        hover:bg-gray-100
+                        hover:border-gray-400
+                      `
+                  }
+                `}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </section>
+
+
+        {/* ===================================
+            추천 버튼
+        =================================== */}
+
+        <button
+          type="button"
+          onClick={handleRecommend}
+          disabled={!canRecommend}
+          className={`
+            w-full
+            py-4
+            rounded-xl
+            font-semibold
+            transition-all
+            duration-150
+
+            ${
+              canRecommend
+                ? `
+                  cursor-pointer
+                  bg-black
+                  text-white
+                  hover:bg-gray-800
+                  active:scale-[0.98]
+                `
+                : `
+                  cursor-not-allowed
+                  bg-gray-200
+                  text-gray-400
+                `
+            }
+          `}
+        >
+          메뉴 추천받기
+        </button>
+
+
+        {/* ===================================
+            추천 결과
+        =================================== */}
+
+        {recommendations.length > 0 && (
+          <section className="mt-12">
+
+            <div className="mb-5">
+              <p className="text-sm text-gray-400 mb-1">
+                취향에 맞춰 골라봤어요
+              </p>
+
+              <h2 className="text-2xl font-bold">
+                오늘의 추천 🍴
+              </h2>
+            </div>
+
+            <div className="space-y-4">
+              {recommendations.map(
+                (menu, index) => (
+                  <div
+                    key={`${recommendationId}-${menu.name}`}
+                    className="
+                      border
+                      border-gray-200
+                      rounded-2xl
+                      p-5
+                      transition-all
+                      duration-150
+                      hover:border-gray-300
+                      hover:shadow-sm
+                    "
+                  >
+                    <p className="text-sm text-gray-400 mb-1">
+                      추천 {index + 1}
+                    </p>
+
+                    <h3 className="text-xl font-bold mb-2">
+                      {menu.name}
+                    </h3>
+
+                    <p className="text-gray-600 leading-relaxed mb-5">
+                      {menu.reason}
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleMenuSelect(
+                          menu,
+                          index
+                        )
+                      }
+                      className="
+                        cursor-pointer
+                        px-4 py-2.5
+                        bg-gray-100
+                        rounded-lg
+                        font-medium
+                        transition-all
+                        duration-150
+                        hover:bg-black
+                        hover:text-white
+                        active:scale-95
+                      "
+                    >
+                      이거 먹을래
+                    </button>
+                  </div>
+                )
+              )}
             </div>
           </section>
         )}
 
-        <p className="mt-10 text-xs text-gray-400 text-center">
+
+        {/* ===================================
+            로그 수집 안내
+        =================================== */}
+
+        <p className="mt-12 text-xs leading-relaxed text-gray-400 text-center">
           서비스 개선을 위해 익명의 이용 기록
           (선택 조건, 추천 조회 및 메뉴 선택)이 수집됩니다.
           이름, 이메일 등 개인식별정보는 수집하지 않습니다.
-        </p>  
+        </p>
 
       </div>
     </main>
