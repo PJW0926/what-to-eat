@@ -32,19 +32,13 @@ export function getSessionId() {
 }
 
 
-export function getExperimentGroup() {
-  let group = localStorage.getItem("whattoeat_experiment_group");
+export function getExperimentGroup(userId?: string) {
+  const id = userId ?? getUserId();
 
-  if (!group) {
-    group = Math.random() < 0.5 ? "A" : "B";
+  const lastChar = id.slice(-1).toLowerCase();
+  const value = parseInt(lastChar, 16);
 
-    localStorage.setItem(
-      "whattoeat_experiment_group",
-      group
-    );
-  }
-
-  return group;
+  return value < 8 ? "A" : "B";
 }
 
 export async function logEvent(
@@ -54,7 +48,7 @@ export async function logEvent(
 ) {
   const userId = getUserId();
   const sessionId = getSessionId();
-  const experimentGroup = getExperimentGroup();
+const experimentGroup = getExperimentGroup(userId);
 
   try {
     await fetch("/api/events", {
