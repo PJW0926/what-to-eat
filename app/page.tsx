@@ -749,7 +749,7 @@ export default function Home() {
           `}
         >
           {canRecommend
-            ? "메뉴 추천받기 →"
+            ? "메뉴 추천받기"
             : "3가지를 선택해주세요"}
         </button>
 
@@ -854,7 +854,7 @@ export default function Home() {
                         active:scale-95
                       "
                     >
-                      이거 먹을래 →
+                      이거 먹을래
                     </button>
 
                   </div>
